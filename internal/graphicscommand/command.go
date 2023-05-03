@@ -90,43 +90,61 @@ func mustUseDifferentVertexBuffer(nextNumVertexFloats int) bool {
 	return nextNumVertexFloats > graphics.MaxVertexFloatsCount
 }
 
+type EnqueueDrawTrianglesCommand struct {
+	dst       *Image
+	srcs      [graphics.ShaderImageCount]*Image
+	offsets   [graphics.ShaderImageCount - 1][2]float32
+	vertices  []float32
+	indices   []uint16
+	blend     graphicsdriver.Blend
+	dstRegion graphicsdriver.Region
+	srcRegion graphicsdriver.Region
+	shader    *Shader
+	uniforms  []uint32
+	evenOdd   bool
+}
+
 // EnqueueDrawTrianglesCommand enqueues a drawing-image command.
-func (q *commandQueue) EnqueueDrawTrianglesCommand(dst *Image, srcs [graphics.ShaderImageCount]*Image, offsets [graphics.ShaderImageCount - 1][2]float32, vertices []float32, indices []uint16, blend graphicsdriver.Blend, dstRegion, srcRegion graphicsdriver.Region, shader *Shader, uniforms []uint32, evenOdd bool) {
-	if len(vertices) > graphics.MaxVertexFloatsCount {
-		panic(fmt.Sprintf("graphicscommand: len(vertices) must equal to or less than %d but was %d", graphics.MaxVertexFloatsCount, len(vertices)))
+func (q *commandQueue) EnqueueDrawTrianglesCommand(cmd *EnqueueDrawTrianglesCommand) {
+	if len(cmd.vertices) > graphics.MaxVertexFloatsCount {
+		panic(fmt.Sprintf("graphicscommand: len(vertices) must equal to or less than %d but was %d", graphics.MaxVertexFloatsCount, len(cmd.vertices)))
 	}
 
 	split := false
-	if mustUseDifferentVertexBuffer(q.tmpNumVertexFloats + len(vertices)) {
+	if mustUseDifferentVertexBuffer(q.tmpNumVertexFloats + len(cmd.vertices)) {
 		q.tmpNumVertexFloats = 0
 		split = true
 	}
 
 	// Assume that all the image sizes are same.
 	// Assume that the images are packed from the front in the slice srcs.
-	q.vertices = append(q.vertices, vertices...)
-	q.appendIndices(indices, uint16(q.tmpNumVertexFloats/graphics.VertexFloatCount))
-	q.tmpNumVertexFloats += len(vertices)
+	q.vertices = append(q.vertices, cmd.vertices...)
+	q.appendIndices(cmd.indices, uint16(q.tmpNumVertexFloats/graphics.VertexFloatCount))
+	q.tmpNumVertexFloats += len(cmd.vertices)
 
 	// prependPreservedUniforms not only prepends values to the given slice but also creates a new slice.
 	// Allocating a new slice is necessary to make EnqueueDrawTrianglesCommand safe so far.
 	// TODO: This might cause a performance issue (#2601).
-	uniforms = q.prependPreservedUniforms(uniforms, shader, dst, srcs, offsets, dstRegion, srcRegion)
+	origUniforms := cmd.uniforms
+	cmd.uniforms = q.prependPreservedUniforms(cmd)
+	defer func() {
+		cmd.uniforms = origUniforms
+	}()
 
 	// Remove unused uniform variables so that more commands can be merged.
-	shader.ir.FilterUniformVariables(uniforms)
+	cmd.shader.ir.FilterUniformVariables(cmd.uniforms)
 
 	// TODO: If dst is the screen, reorder the command to be the last.
 	if !split && 0 < len(q.commands) {
 		if last, ok := q.commands[len(q.commands)-1].(*drawTrianglesCommand); ok {
-			if last.CanMergeWithDrawTrianglesCommand(dst, srcs, vertices, blend, shader, uniforms, evenOdd) {
-				last.setVertices(q.lastVertices(len(vertices) + last.numVertices()))
-				if last.dstRegions[len(last.dstRegions)-1].Region == dstRegion {
-					last.dstRegions[len(last.dstRegions)-1].IndexCount += len(indices)
+			if last.CanMergeWithDrawTrianglesCommand(cmd) {
+				last.setVertices(q.lastVertices(len(cmd.vertices) + last.numVertices()))
+				if last.dstRegions[len(last.dstRegions)-1].Region == cmd.dstRegion {
+					last.dstRegions[len(last.dstRegions)-1].IndexCount += len(cmd.indices)
 				} else {
 					last.dstRegions = append(last.dstRegions, graphicsdriver.DstRegion{
-						Region:     dstRegion,
-						IndexCount: len(indices),
+						Region:     cmd.dstRegion,
+						IndexCount: len(cmd.indices),
 					})
 				}
 				return
@@ -135,19 +153,19 @@ func (q *commandQueue) EnqueueDrawTrianglesCommand(dst *Image, srcs [graphics.Sh
 	}
 
 	c := q.drawTrianglesCommandPool.get()
-	c.dst = dst
-	c.srcs = srcs
-	c.vertices = q.lastVertices(len(vertices))
-	c.blend = blend
+	c.dst = cmd.dst
+	c.srcs = cmd.srcs
+	c.vertices = q.lastVertices(len(cmd.vertices))
+	c.blend = cmd.blend
 	c.dstRegions = []graphicsdriver.DstRegion{
 		{
-			Region:     dstRegion,
-			IndexCount: len(indices),
+			Region:     cmd.dstRegion,
+			IndexCount: len(cmd.indices),
 		},
 	}
-	c.shader = shader
-	c.uniforms = uniforms
-	c.evenOdd = evenOdd
+	c.shader = cmd.shader
+	c.uniforms = cmd.uniforms
+	c.evenOdd = cmd.evenOdd
 	q.commands = append(q.commands, c)
 }
 
@@ -337,31 +355,31 @@ func (c *drawTrianglesCommand) setVertices(vertices []float32) {
 
 // CanMergeWithDrawTrianglesCommand returns a boolean value indicating whether the other drawTrianglesCommand can be merged
 // with the drawTrianglesCommand c.
-func (c *drawTrianglesCommand) CanMergeWithDrawTrianglesCommand(dst *Image, srcs [graphics.ShaderImageCount]*Image, vertices []float32, blend graphicsdriver.Blend, shader *Shader, uniforms []uint32, evenOdd bool) bool {
-	if c.shader != shader {
+func (c *drawTrianglesCommand) CanMergeWithDrawTrianglesCommand(cmd *EnqueueDrawTrianglesCommand) bool {
+	if c.shader != cmd.shader {
 		return false
 	}
-	if len(c.uniforms) != len(uniforms) {
+	if len(c.uniforms) != len(cmd.uniforms) {
 		return false
 	}
 	for i := range c.uniforms {
-		if c.uniforms[i] != uniforms[i] {
+		if c.uniforms[i] != cmd.uniforms[i] {
 			return false
 		}
 	}
-	if c.dst != dst {
+	if c.dst != cmd.dst {
 		return false
 	}
-	if c.srcs != srcs {
+	if c.srcs != cmd.srcs {
 		return false
 	}
-	if c.blend != blend {
+	if c.blend != cmd.blend {
 		return false
 	}
-	if c.evenOdd != evenOdd {
+	if c.evenOdd != cmd.evenOdd {
 		return false
 	}
-	if c.evenOdd && mightOverlapDstRegions(c.vertices, vertices) {
+	if c.evenOdd && mightOverlapDstRegions(c.vertices, cmd.vertices) {
 		return false
 	}
 	return true
@@ -573,21 +591,21 @@ func roundUpPower2(x int) int {
 	return p2
 }
 
-func (q *commandQueue) prependPreservedUniforms(uniforms []uint32, shader *Shader, dst *Image, srcs [graphics.ShaderImageCount]*Image, offsets [graphics.ShaderImageCount - 1][2]float32, dstRegion, srcRegion graphicsdriver.Region) []uint32 {
-	origUniforms := uniforms
-	uniforms = q.uint32sBuffer.alloc(len(origUniforms) + graphics.PreservedUniformUint32Count)
+func (q *commandQueue) prependPreservedUniforms(cmd *EnqueueDrawTrianglesCommand) []uint32 {
+	origUniforms := cmd.uniforms
+	uniforms := q.uint32sBuffer.alloc(len(origUniforms) + graphics.PreservedUniformUint32Count)
 	copy(uniforms[graphics.PreservedUniformUint32Count:], origUniforms)
 
 	var idx int
 
 	// Set the destination texture size.
-	dw, dh := dst.InternalSize()
+	dw, dh := cmd.dst.InternalSize()
 	uniforms[idx+0] = math.Float32bits(float32(dw))
 	uniforms[idx+1] = math.Float32bits(float32(dh))
 	idx += 2
 
 	// Set the source texture sizes.
-	for i, src := range srcs {
+	for i, src := range cmd.srcs {
 		if src == nil {
 			continue
 		}
@@ -595,9 +613,10 @@ func (q *commandQueue) prependPreservedUniforms(uniforms []uint32, shader *Shade
 		uniforms[idx+2*i] = math.Float32bits(float32(w))
 		uniforms[idx+2*i+1] = math.Float32bits(float32(h))
 	}
-	idx += len(srcs) * 2
+	idx += len(cmd.srcs) * 2
 
-	if shader.unit() == shaderir.Texel {
+	dstRegion := cmd.dstRegion
+	if cmd.shader.unit() == shaderir.Texel {
 		dstRegion.X /= float32(dw)
 		dstRegion.Y /= float32(dh)
 		dstRegion.Width /= float32(dw)
@@ -613,8 +632,9 @@ func (q *commandQueue) prependPreservedUniforms(uniforms []uint32, shader *Shade
 	uniforms[idx+1] = math.Float32bits(dstRegion.Height)
 	idx += 2
 
-	if shader.unit() == shaderir.Texel && srcs[0] != nil {
-		w, h := srcs[0].InternalSize()
+	srcRegion := cmd.srcRegion
+	if cmd.shader.unit() == shaderir.Texel && cmd.srcs[0] != nil {
+		w, h := cmd.srcs[0].InternalSize()
 		srcRegion.X /= float32(w)
 		srcRegion.Y /= float32(h)
 		srcRegion.Width /= float32(w)
@@ -622,11 +642,11 @@ func (q *commandQueue) prependPreservedUniforms(uniforms []uint32, shader *Shade
 	}
 
 	// Set the source offsets.
-	for i, offset := range offsets {
+	for i, offset := range cmd.offsets {
 		uniforms[idx+2*i] = math.Float32bits(offset[0])
 		uniforms[idx+2*i+1] = math.Float32bits(offset[1])
 	}
-	idx += len(offsets) * 2
+	idx += len(cmd.offsets) * 2
 
 	// Set the source region of texture0.
 	uniforms[idx+0] = math.Float32bits(srcRegion.X)

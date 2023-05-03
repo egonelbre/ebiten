@@ -146,8 +146,8 @@ func (i *Image) InternalSize() (int, int) {
 //
 // If the source image is not specified, i.e., src is nil and there is no image in the uniform variables, the
 // elements for the source image are not used.
-func (i *Image) DrawTriangles(srcs [graphics.ShaderImageCount]*Image, offsets [graphics.ShaderImageCount - 1][2]float32, vertices []float32, indices []uint16, blend graphicsdriver.Blend, dstRegion, srcRegion graphicsdriver.Region, shader *Shader, uniforms []uint32, evenOdd bool) {
-	for _, src := range srcs {
+func (i *Image) DrawTriangles(cmd *EnqueueDrawTrianglesCommand) {
+	for _, src := range cmd.Srcs {
 		if src == nil {
 			continue
 		}
@@ -158,19 +158,8 @@ func (i *Image) DrawTriangles(srcs [graphics.ShaderImageCount]*Image, offsets [g
 	}
 	i.flushBufferedWritePixels()
 
-	theCommandQueue.EnqueueDrawTrianglesCommand(&EnqueueDrawTrianglesCommand{
-		dst:       i,
-		srcs:      srcs,
-		offsets:   offsets,
-		vertices:  vertices,
-		indices:   indices,
-		blend:     blend,
-		dstRegion: dstRegion,
-		srcRegion: srcRegion,
-		shader:    shader,
-		uniforms:  uniforms,
-		evenOdd:   evenOdd,
-	})
+	cmd.Dst = i
+	theCommandQueue.EnqueueDrawTrianglesCommand(cmd)
 }
 
 // ReadPixels reads the image's pixels.

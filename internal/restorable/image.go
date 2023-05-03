@@ -213,7 +213,16 @@ func clearImage(i *graphicscommand.Image) {
 		Width:  float32(dw),
 		Height: float32(dh),
 	}
-	i.DrawTriangles([graphics.ShaderImageCount]*graphicscommand.Image{}, offsets, vs, is, graphicsdriver.BlendClear, dstRegion, graphicsdriver.Region{}, clearShader.shader, nil, false)
+	i.DrawTriangles(&graphicscommand.EnqueueDrawTrianglesCommand{
+		Offsets:   offsets,
+		Vertices:  vs,
+		Indices:   is,
+		Blend:     graphicsdriver.BlendClear,
+		DstRegion: dstRegion,
+		Shader:    clearShader.shader,
+		Uniforms:  nil,
+		EvenOdd:   false,
+	})
 }
 
 // BasePixelsForTesting returns the image's basePixels for testing.
@@ -373,7 +382,20 @@ func (i *Image) DrawTriangles(srcs [graphics.ShaderImageCount]*Image, offsets [g
 		}
 		imgs[i] = src.image
 	}
-	i.image.DrawTriangles(imgs, offsets, vertices, indices, blend, dstRegion, srcRegion, shader.shader, uniforms, evenOdd)
+	i.image.DrawTriangles(
+		&graphicscommand.EnqueueDrawTrianglesCommand{
+			Dst:       nil,
+			Srcs:      imgs,
+			Offsets:   offsets,
+			Vertices:  vertices,
+			Indices:   indices,
+			Blend:     blend,
+			DstRegion: dstRegion,
+			SrcRegion: srcRegion,
+			Shader:    shader.shader,
+			Uniforms:  uniforms,
+			EvenOdd:   evenOdd,
+		})
 }
 
 // appendDrawTrianglesHistory appends a draw-image history item to the image.
@@ -599,7 +621,18 @@ func (i *Image) restore(graphicsDriver graphicsdriver.Graphics) error {
 	i.basePixels.Apply(gimg)
 
 	for _, c := range i.drawTrianglesHistory {
-		var imgs [graphics.ShaderImageCount]*graphicscommand.Image
+		cmd := &graphicscommand.EnqueueDrawTrianglesCommand{
+			Offsets:   c.offsets,
+			Vertices:  c.vertices,
+			Indices:   c.indices,
+			Blend:     c.blend,
+			DstRegion: c.dstRegion,
+			SrcRegion: c.srcRegion,
+			Shader:    c.shader.shader,
+			Uniforms:  c.uniforms,
+			EvenOdd:   c.evenOdd,
+		}
+
 		for i, img := range c.images {
 			if img == nil {
 				continue
@@ -607,9 +640,10 @@ func (i *Image) restore(graphicsDriver graphicsdriver.Graphics) error {
 			if img.hasDependency() {
 				panic("restorable: all dependencies must be already resolved but not")
 			}
-			imgs[i] = img.image
+			cmd.Srcs[i] = img.image
 		}
-		gimg.DrawTriangles(imgs, c.offsets, c.vertices, c.indices, c.blend, c.dstRegion, c.srcRegion, c.shader.shader, c.uniforms, c.evenOdd)
+
+		gimg.DrawTriangles(cmd)
 	}
 
 	// In order to clear the draw-triangles history, read pixels from GPU.

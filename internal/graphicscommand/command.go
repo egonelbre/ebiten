@@ -19,6 +19,7 @@ import (
 	"image"
 	"math"
 	"strings"
+	"unsafe"
 
 	"github.com/hajimehoshi/ebiten/v2/internal/debug"
 	"github.com/hajimehoshi/ebiten/v2/internal/graphics"
@@ -622,10 +623,11 @@ func (q *commandQueue) prependPreservedUniforms(uniforms []uint32, shader *Shade
 	}
 
 	// Set the source offsets.
-	for i, offset := range offsets {
-		uniforms[idx+2*i] = math.Float32bits(offset[0])
-		uniforms[idx+2*i+1] = math.Float32bits(offset[1])
-	}
+	copy(uniforms[idx:], unsafe.Slice((*uint32)(unsafe.Pointer(&offsets[0])), len(offsets)*2))
+	//for i, offset := range offsets {
+	//	uniforms[idx+2*i] = math.Float32bits(offset[0])
+	//	uniforms[idx+2*i+1] = math.Float32bits(offset[1])
+	//}
 	idx += len(offsets) * 2
 
 	// Set the source region of texture0.

@@ -21,6 +21,7 @@ import (
 	"sync"
 
 	"github.com/hajimehoshi/ebiten/v2/internal/graphics"
+	"github.com/hajimehoshi/ebiten/v2/internal/graphicscommand"
 	"github.com/hajimehoshi/ebiten/v2/internal/graphicsdriver"
 	"github.com/hajimehoshi/ebiten/v2/internal/packing"
 	"github.com/hajimehoshi/ebiten/v2/internal/restorable"
@@ -501,7 +502,18 @@ func (i *Image) drawTriangles(srcs [graphics.ShaderImageCount]*Image, vertices [
 		imgs[i] = src.backend.restorable
 	}
 
-	i.backend.restorable.DrawTriangles(imgs, offsets, vertices, indices, blend, dstRegion, srcRegion, shader.shader, uniforms, evenOdd)
+	i.backend.restorable.DrawTriangles(imgs,
+		&graphicscommand.EnqueueDrawTrianglesCommand{
+			Offsets:   offsets,
+			Vertices:  vertices,
+			Indices:   indices,
+			Blend:     blend,
+			DstRegion: dstRegion,
+			SrcRegion: srcRegion,
+			Shader:    shader.shader.InternalShader(),
+			Uniforms:  uniforms,
+			EvenOdd:   evenOdd,
+		})
 
 	for _, src := range srcs {
 		if src == nil {

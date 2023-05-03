@@ -184,7 +184,17 @@ func (i *Image) Extend(width, height int) *Image {
 		Width:  float32(sw),
 		Height: float32(sh),
 	}
-	newImg.DrawTriangles(srcs, offsets, vs, is, graphicsdriver.BlendCopy, dr, graphicsdriver.Region{}, NearestFilterShader, nil, false)
+
+	newImg.DrawTriangles(srcs,
+		&graphicscommand.EnqueueDrawTrianglesCommand{
+			Offsets:   offsets,
+			Vertices:  vs,
+			Indices:   is,
+			Blend:     graphicsdriver.BlendCopy,
+			DstRegion: dr,
+			SrcRegion: graphicsdriver.Region{},
+			Shader:    NearestFilterShader.shader,
+		})
 	i.Dispose()
 
 	return newImg
@@ -350,8 +360,8 @@ func (i *Image) WritePixels(pixels []byte, region image.Rectangle) {
 //	5: Color G
 //	6: Color B
 //	7: Color Y
-func (i *Image) DrawTriangles(srcs [graphics.ShaderImageCount]*Image, offsets [graphics.ShaderImageCount - 1][2]float32, vertices []float32, indices []uint16, blend graphicsdriver.Blend, dstRegion, srcRegion graphicsdriver.Region, shader *Shader, uniforms []uint32, evenOdd bool) {
-	if len(vertices) == 0 {
+func (i *Image) DrawTriangles(srcs [graphics.ShaderImageCount]*Image, cmd *graphicscommand.EnqueueDrawTrianglesCommand) {
+	if len(cmd.Vertices) == 0 {
 		return
 	}
 	theImages.makeStaleIfDependingOn(i)
@@ -370,32 +380,19 @@ func (i *Image) DrawTriangles(srcs [graphics.ShaderImageCount]*Image, offsets [g
 
 	// Even if the image is already stale, call makeStale to extend the stale region.
 	if srcstale || !needsRestoring() || !i.needsRestoring() || i.stale {
-		i.makeStale(regionToRectangle(dstRegion))
+		i.makeStale(regionToRectangle(cmd.DstRegion))
 	} else {
-		i.appendDrawTrianglesHistory(srcs, offsets, vertices, indices, blend, dstRegion, srcRegion, shader, uniforms, evenOdd)
+		panic("not implemented")
+		// i.appendDrawTrianglesHistory(srcs, cmd.Offsets, cmd.Vertices, cmd.Indices, cmd.Blend, dstRegion, srcRegion, shader, uniforms, evenOdd)
 	}
 
-	var imgs [graphics.ShaderImageCount]*graphicscommand.Image
 	for i, src := range srcs {
 		if src == nil {
 			continue
 		}
-		imgs[i] = src.image
+		cmd.Srcs[i] = src.image
 	}
-	i.image.DrawTriangles(
-		&graphicscommand.EnqueueDrawTrianglesCommand{
-			Dst:       nil,
-			Srcs:      imgs,
-			Offsets:   offsets,
-			Vertices:  vertices,
-			Indices:   indices,
-			Blend:     blend,
-			DstRegion: dstRegion,
-			SrcRegion: srcRegion,
-			Shader:    shader.shader,
-			Uniforms:  uniforms,
-			EvenOdd:   evenOdd,
-		})
+	i.image.DrawTriangles(cmd)
 }
 
 // appendDrawTrianglesHistory appends a draw-image history item to the image.

@@ -39,6 +39,8 @@ func NewShader(ir *shaderir.Program) *Shader {
 	return s
 }
 
+func (s *Shader) InternalShader() *graphicscommand.Shader { return s.shader }
+
 func (s *Shader) Dispose() {
 	theImages.removeShader(s)
 	s.shader.Dispose()

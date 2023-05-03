@@ -20,6 +20,7 @@ require (
 
 require (
 	github.com/jfreymuth/vorbis v1.0.2 // indirect
+	github.com/loov/hrtime v1.0.3 // indirect
 	golang.org/x/exp v0.0.0-20190731235908-ec7cb31e5a56 // indirect
 	golang.org/x/mod v0.10.0 // indirect
 	golang.org/x/text v0.9.0 // indirect

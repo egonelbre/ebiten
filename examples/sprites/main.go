@@ -16,16 +16,21 @@ package main
 
 import (
 	"bytes"
+	"flag"
 	"fmt"
 	"image"
 	_ "image/png"
 	"log"
 	"math"
 	"math/rand"
+	"os"
+	"runtime/pprof"
+	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/examples/resources/images"
+	"github.com/loov/hrtime"
 )
 
 const (
@@ -100,7 +105,7 @@ func (s *Sprites) Update() {
 
 const (
 	MinSprites = 0
-	MaxSprites = 50000
+	MaxSprites = 500000
 )
 
 type Game struct {
@@ -108,6 +113,10 @@ type Game struct {
 	sprites  Sprites
 	op       ebiten.DrawImageOptions
 	inited   bool
+
+	frame      int
+	total      time.Duration
+	totalCount int
 }
 
 func (g *Game) init() {
@@ -116,7 +125,7 @@ func (g *Game) init() {
 	}()
 
 	g.sprites.sprites = make([]*Sprite, MaxSprites)
-	g.sprites.num = 500
+	g.sprites.num = 100000
 	for i := range g.sprites.sprites {
 		w, h := ebitenImage.Bounds().Dx(), ebitenImage.Bounds().Dy()
 		x, y := rand.Intn(screenWidth-w), rand.Intn(screenHeight-h)
@@ -187,6 +196,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// some conditions e.g. all the rendering sources and targets are same.
 	// For more detail, see:
 	// https://pkg.go.dev/github.com/hajimehoshi/ebiten/v2#Image.DrawImage
+	start := hrtime.Now()
 	w, h := ebitenImage.Bounds().Dx(), ebitenImage.Bounds().Dy()
 	for i := 0; i < g.sprites.num; i++ {
 		s := g.sprites.sprites[i]
@@ -197,10 +207,23 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.op.GeoM.Translate(float64(s.x), float64(s.y))
 		screen.DrawImage(ebitenImage, &g.op)
 	}
-	msg := fmt.Sprintf(`TPS: %0.2f
+	finish := hrtime.Now()
+	fmt.Println(finish - start)
+
+	var avg float64
+	g.frame++
+	if g.frame > 10 {
+		g.total += finish - start
+		g.totalCount++
+		avg = g.total.Seconds() * 1000 / float64(g.totalCount)
+	}
+
+	msg := fmt.Sprintf(`
+DRAW: %0.2fms (avg %0.2fms)
+TPS: %0.2f
 FPS: %0.2f
 Num of sprites: %d
-Press <- or -> to change the number of sprites`, ebiten.ActualTPS(), ebiten.ActualFPS(), g.sprites.num)
+Press <- or -> to change the number of sprites`, (finish-start).Seconds()*1000, avg, ebiten.ActualTPS(), ebiten.ActualFPS(), g.sprites.num)
 	ebitenutil.DebugPrint(screen, msg)
 }
 
@@ -209,6 +232,18 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 }
 
 func main() {
+	var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
+	flag.Parse()
+
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+	}
+
 	ebiten.SetWindowSize(screenWidth*2, screenHeight*2)
 	ebiten.SetWindowTitle("Sprites (Ebitengine Demo)")
 	ebiten.SetWindowResizable(true)

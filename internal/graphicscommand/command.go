@@ -640,20 +640,20 @@ func (q *commandQueue) prependPreservedUniforms(uniforms []uint32, shader *Shade
 	idx += 2
 
 	uniforms[idx+0] = math.Float32bits(2 / float32(dw))
-	uniforms[idx+1] = 0
-	uniforms[idx+2] = 0
-	uniforms[idx+3] = 0
-	uniforms[idx+4] = 0
+	//uniforms[idx+1] = 0
+	//uniforms[idx+2] = 0
+	//uniforms[idx+3] = 0
+	//uniforms[idx+4] = 0
 	uniforms[idx+5] = math.Float32bits(2 / float32(dh))
-	uniforms[idx+6] = 0
-	uniforms[idx+7] = 0
-	uniforms[idx+8] = 0
-	uniforms[idx+9] = 0
+	//uniforms[idx+6] = 0
+	//uniforms[idx+7] = 0
+	//uniforms[idx+8] = 0
+	//uniforms[idx+9] = 0
 	uniforms[idx+10] = math.Float32bits(1)
-	uniforms[idx+11] = 0
+	//uniforms[idx+11] = 0
 	uniforms[idx+12] = math.Float32bits(-1)
 	uniforms[idx+13] = math.Float32bits(-1)
-	uniforms[idx+14] = 0
+	//uniforms[idx+14] = 0
 	uniforms[idx+15] = math.Float32bits(1)
 	idx += 16
 
